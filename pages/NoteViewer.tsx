@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { generateSyllabusNotes } from '../services/geminiService';
 import { NoteContent } from '../types';
-import { ArrowLeft, BookOpen, Share2, Copy, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Share2, Copy, ExternalLink, Loader2, ImageIcon } from 'lucide-react';
 
 const NoteViewer: React.FC = () => {
   const { classLevel, subject, topic } = useParams<{ classLevel: string; subject: string; topic: string }>();
@@ -74,7 +75,7 @@ const NoteViewer: React.FC = () => {
               </div>
               <h2 className="mt-8 text-xl font-bold text-gray-800">Generating Notes...</h2>
               <p className="text-gray-500 mt-2 max-w-md">
-                 Our AI tutor is writing detailed notes for <span className="font-semibold text-uganda-green">{topic}</span> aligned with the NCDC curriculum.
+                 Our AI tutor is writing detailed notes and finding visuals for <span className="font-semibold text-uganda-green">{topic}</span>.
               </p>
               <div className="mt-6 flex gap-2">
                  <span className="w-2 h-2 bg-uganda-green rounded-full animate-bounce" style={{ animationDelay: '0ms'}}></span>
@@ -95,6 +96,25 @@ const NoteViewer: React.FC = () => {
                   {topic}
                </h1>
             </div>
+
+            {/* Generated Image Section */}
+            {data.generatedImage && (
+              <div className="mb-8 rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white">
+                 <div className="w-full aspect-video bg-gray-100 relative">
+                    <img 
+                       src={data.generatedImage} 
+                       alt={`Illustration of ${topic}`} 
+                       className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
+                       <div className="flex items-center text-white/90 text-sm font-medium">
+                          <ImageIcon className="h-4 w-4 mr-2" />
+                          AI Generated Illustration
+                       </div>
+                    </div>
+                 </div>
+              </div>
+            )}
 
             {/* AI Generated Content */}
             <article className="prose prose-lg prose-green max-w-none bg-white p-6 md:p-10 rounded-2xl shadow-sm border border-gray-100">

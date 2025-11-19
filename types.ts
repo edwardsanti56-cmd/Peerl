@@ -1,3 +1,4 @@
+
 export enum ClassLevel {
   S1 = 'S1',
   S2 = 'S2',
@@ -33,6 +34,7 @@ export interface NoteContent {
   subjectName: string;
   classLevel: string;
   sources: SearchResult[];
+  generatedImage?: string;
 }
 
 export interface SearchState {

@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { SearchResult, NoteContent } from '../types';
 
@@ -5,11 +6,30 @@ import { SearchResult, NoteContent } from '../types';
 const apiKey = process.env.API_KEY || ''; 
 const ai = new GoogleGenAI({ apiKey });
 
+const CACHE_PREFIX = 'pearl_notes_cache_v1_';
+
 export const generateSyllabusNotes = async (
   topic: string, 
   subject: string, 
   classLevel: string
 ): Promise<NoteContent> => {
+  
+  // 1. Check Cache
+  const cacheKey = `${CACHE_PREFIX}${subject}_${classLevel}_${topic}`.replace(/[\s\W]+/g, '_').toLowerCase();
+  
+  try {
+    const cachedData = localStorage.getItem(cacheKey);
+    if (cachedData) {
+      const parsed = JSON.parse(cachedData);
+      if (parsed && parsed.htmlContent) {
+        console.log(`Serving notes from cache for: ${topic}`);
+        return parsed as NoteContent;
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to read from cache", e);
+  }
+
   if (!apiKey) {
     return {
       htmlContent: "<p class='text-red-500'>API Key is missing. Please configure the API_KEY.</p>",
@@ -22,7 +42,7 @@ export const generateSyllabusNotes = async (
 
   try {
     // Optimized prompt for speed and structure
-    const prompt = `
+    const textPrompt = `
       You are a senior teacher for the Uganda NCDC Competency-Based Curriculum.
       Generate concise yet detailed study notes for:
       **Subject:** ${subject}
@@ -49,50 +69,89 @@ export const generateSyllabusNotes = async (
       Make it educational, structured, and easy to read on mobile.
     `;
 
-    const response = await ai.models.generateContent({
+    // Request both Text and Image in parallel
+    const textRequest = ai.models.generateContent({
       model: "gemini-2.5-flash", // Fast model
-      contents: prompt,
+      contents: textPrompt,
       config: {
-        // Disable thinking budget for speed unless complex logic is needed. 
-        // Notes generation is retrieval/creative, not logic-heavy.
         thinkingConfig: { thinkingBudget: 0 },
         tools: [{ googleSearch: {} }],
       },
     });
 
-    // Extract generated text (HTML)
-    let htmlContent = response.text || "";
-    
-    // Clean up markdown code blocks if the model adds them
-    htmlContent = htmlContent.replace(/```html/g, '').replace(/```/g, '');
+    // Image generation request using Imagen
+    const imageRequest = ai.models.generateImages({
+      model: 'imagen-4.0-generate-001',
+      prompt: `Educational illustration or diagram of ${topic} related to ${subject}. Scientific, clear, high quality, white background preferred.`,
+      config: {
+        numberOfImages: 1,
+        outputMimeType: 'image/jpeg',
+        aspectRatio: '16:9',
+      },
+    });
 
-    // Extract grounding chunks (sources)
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    // Execute in parallel, but don't let image failure stop text
+    const [textResponseResult, imageResponseResult] = await Promise.allSettled([textRequest, imageRequest]);
+
+    // Process Text Response
+    let htmlContent = "";
     const sources: SearchResult[] = [];
 
-    if (groundingChunks) {
-      groundingChunks.forEach((chunk: any) => {
-        if (chunk.web) {
-          sources.push({
-            title: chunk.web.title || "External Resource",
-            url: chunk.web.uri,
-            source: new URL(chunk.web.uri).hostname,
-            snippet: "Reference link found via Google Search."
-          });
-        }
-      });
+    if (textResponseResult.status === 'fulfilled') {
+      const response = textResponseResult.value;
+      htmlContent = response.text || "";
+      htmlContent = htmlContent.replace(/```html/g, '').replace(/```/g, '');
+
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (groundingChunks) {
+        groundingChunks.forEach((chunk: any) => {
+          if (chunk.web) {
+            sources.push({
+              title: chunk.web.title || "External Resource",
+              url: chunk.web.uri,
+              source: new URL(chunk.web.uri).hostname,
+              snippet: "Reference link found via Google Search."
+            });
+          }
+        });
+      }
+    } else {
+       // Fallback if text generation fails entirely
+       console.error("Text generation failed", textResponseResult.reason);
+       htmlContent = `<div class="p-4 bg-red-50 text-red-700">Error generating notes. Please try again.</div>`;
+    }
+
+    // Process Image Response
+    let generatedImage: string | undefined = undefined;
+    if (imageResponseResult.status === 'fulfilled' && imageResponseResult.value.generatedImages?.length > 0) {
+        const imgBytes = imageResponseResult.value.generatedImages[0].image.imageBytes;
+        generatedImage = `data:image/jpeg;base64,${imgBytes}`;
+    } else if (imageResponseResult.status === 'rejected') {
+        console.warn("Image generation failed:", imageResponseResult.reason);
     }
 
     // Deduplicate sources
     const uniqueSources = Array.from(new Map(sources.map(item => [item.url, item])).values());
 
-    return {
+    const result: NoteContent = {
       htmlContent,
       topicName: topic,
       subjectName: subject,
       classLevel,
-      sources: uniqueSources
+      sources: uniqueSources,
+      generatedImage
     };
+
+    // 2. Save to Cache (only if text generation was successful)
+    if (textResponseResult.status === 'fulfilled') {
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(result));
+      } catch (e) {
+        console.warn("Failed to save to cache (likely quota exceeded)", e);
+      }
+    }
+
+    return result;
 
   } catch (error) {
     console.error("Generation error:", error);
