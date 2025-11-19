@@ -97,26 +97,7 @@ const NoteViewer: React.FC = () => {
                </h1>
             </div>
 
-            {/* Generated Image Section */}
-            {data.generatedImage && (
-              <div className="mb-8 rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white">
-                 <div className="w-full aspect-video bg-gray-100 relative">
-                    <img 
-                       src={data.generatedImage} 
-                       alt={`Illustration of ${topic}`} 
-                       className="w-full h-full object-cover"
-                    />
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
-                       <div className="flex items-center text-white/90 text-sm font-medium">
-                          <ImageIcon className="h-4 w-4 mr-2" />
-                          AI Generated Illustration
-                       </div>
-                    </div>
-                 </div>
-              </div>
-            )}
-
-            {/* AI Generated Content */}
+            {/* AI Generated Content - Image is now embedded inside htmlContent */}
             <article className="prose prose-lg prose-green max-w-none bg-white p-6 md:p-10 rounded-2xl shadow-sm border border-gray-100">
                <div dangerouslySetInnerHTML={{ __html: data.htmlContent }} />
             </article>

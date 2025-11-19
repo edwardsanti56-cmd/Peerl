@@ -1,3 +1,4 @@
+
 import { Subject, ClassLevel, Topic } from './types';
 
 export const APP_NAME = "Pearl Notes";
@@ -177,7 +178,6 @@ const SYLLABUS_DATA: Record<string, Record<string, string[]>> = {
       'Examination Techniques'
     ]
   },
-  // Add generic fallbacks for other subjects if needed or expand later
   ict: {
     [ClassLevel.S1]: ['Introduction to ICT', 'Computer Hardware', 'Computer Software', 'Keyboard Skills', 'Introduction to Windows'],
     [ClassLevel.S2]: ['File Management', 'Word Processing (Basic)', 'Internet and Email', 'Computer Security', 'Health and Safety'],
@@ -189,6 +189,70 @@ const SYLLABUS_DATA: Record<string, Record<string, string[]>> = {
     [ClassLevel.S2]: ['Business Planning', 'Market Research', 'Types of Business Organizations', 'Bookkeeping Basics'],
     [ClassLevel.S3]: ['Marketing Strategies', 'Financial Management', 'Business Ethics', 'Taxes in Uganda'],
     [ClassLevel.S4]: ['Writing a Business Plan', 'Risk Management', 'Capital Markets', 'Starting a Business Project']
+  },
+  pe: {
+    [ClassLevel.S1]: [
+      'Introduction to Physical Education', 'Physical Fitness and Health', 
+      'Gymnastics (Basic Floor Exercises)', 'Athletics (Sprints and Relays)', 
+      'Football (Basic Skills)', 'Netball (Footwork and Passing)'
+    ],
+    [ClassLevel.S2]: [
+      'Human Anatomy in Sports', 'First Aid and Safety',
+      'Athletics (Long Jump and High Jump)', 'Volleyball (Service and Digging)',
+      'Basketball (Dribbling and Shooting)', 'Traditional Games'
+    ],
+    [ClassLevel.S3]: [
+      'Physiology of Exercise', 'Athletics (Throws: Shot Put, Discus)',
+      'Rugby (Tag and Contact)', 'Handball',
+      'Swimming (Safety and Strokes)', 'Racket Games (Badminton/Table Tennis)'
+    ],
+    [ClassLevel.S4]: [
+      'Sports Management and Administration', 'Training Methods and Principles',
+      'Rules and Officiating', 'Contemporary Issues in Sports',
+      'Biomechanics (Levers and Motion)', 'Career Opportunities in Sports'
+    ]
+  },
+  re: {
+    [ClassLevel.S1]: [
+      'Worship and Prayer', 'The Holy Scriptures', 'Creation and Fall', 
+      'African Traditional Heritage', 'Family and Community'
+    ],
+    [ClassLevel.S2]: [
+      'The Old Testament History', 'Prophets and Prophecies',
+      'The Early Church/Islamic History', 'Rituals and Festivals',
+      'Moral Values in Society'
+    ],
+    [ClassLevel.S3]: [
+      'Happiness and Success', 'Freedom and Responsibility',
+      'Search for Meaning', 'Marriage and Family Life',
+      'Human Rights and Dignity'
+    ],
+    [ClassLevel.S4]: [
+      'Man in Changing Society', 'Work, Leisure and Money',
+      'Law, Order and Justice', 'Peace and Conflict Resolution',
+      'Religion and Science'
+    ]
+  },
+  kiswahili: {
+    [ClassLevel.S1]: [
+      'Introduction to Kiswahili (Salamu)', 'Nouns (Nomino) and Classes', 
+      'Verbs (Vitenzi)', 'Tenses (Nyakati)', 'Common Vocabulary'
+    ],
+    [ClassLevel.S2]: [
+      'Sentence Construction', 'Adjectives and Adverbs',
+      'Comprehension (Ufahamu)', 'Composition Writing (Insha)',
+      'Proverbs and Idioms (Methali na Nahau)'
+    ],
+    [ClassLevel.S3]: [
+      'Introduction to Literature (Fasihi)', 'Oral Literature (Fasihi Simulizi)',
+      'Translation (Tafsiri)', 'Summary Writing (Ufupisho)',
+      'Dialogue and Plays'
+    ],
+    [ClassLevel.S4]: [
+      'Advanced Grammar (Sarufi)', 'Poetry (Ushairi)',
+      'Novel Analysis (Riwaya)', 'Social Issues in Literature',
+      'Revision and Examination Techniques'
+    ]
   }
 };
 

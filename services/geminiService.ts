@@ -6,7 +6,7 @@ import { SearchResult, NoteContent } from '../types';
 const apiKey = process.env.API_KEY || ''; 
 const ai = new GoogleGenAI({ apiKey });
 
-const CACHE_PREFIX = 'pearl_notes_cache_v1_';
+const CACHE_PREFIX = 'pearl_notes_cache_v2_';
 
 export const generateSyllabusNotes = async (
   topic: string, 
@@ -58,6 +58,7 @@ export const generateSyllabusNotes = async (
          - Lists: <ul class="list-disc pl-5 mb-4 space-y-2 text-gray-800">
          - Key Points Box: <div class="bg-green-50 border-l-4 border-uganda-green p-4 my-6 rounded-r">
          - Activity/Example Box: <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-5 my-6">
+      3. **IMPORTANT**: Insert the text "[[IMAGE_PLACEHOLDER]]" exactly once in the HTML content. Place it where a diagram or visual illustration would be most educational (e.g., immediately following a description of structures, inside a key subtopic, or after the Introduction). Ensure it is placed BETWEEN paragraphs, not inside them.
 
       **CONTENT STRUCTURE:**
       1. **Introduction**: Brief definition/overview.
@@ -130,6 +131,34 @@ export const generateSyllabusNotes = async (
         console.warn("Image generation failed:", imageResponseResult.reason);
     }
 
+    // Inject Image into HTML
+    if (generatedImage) {
+        const imgHtml = `
+          <figure class="my-8 rounded-xl overflow-hidden shadow-sm border border-gray-100 bg-white max-w-3xl mx-auto">
+             <img src="${generatedImage}" alt="AI Illustration: ${topic}" class="w-full h-auto object-cover" />
+             <figcaption class="bg-gray-50 p-3 border-t border-gray-100 flex items-center justify-center text-xs text-gray-500 font-medium">
+                <span class="mr-1">✨</span> AI Generated Illustration: ${topic}
+             </figcaption>
+          </figure>
+        `;
+
+        if (htmlContent.includes('[[IMAGE_PLACEHOLDER]]')) {
+            htmlContent = htmlContent.replace('[[IMAGE_PLACEHOLDER]]', imgHtml);
+        } else {
+            // Fallback: Insert after the first closing paragraph tag (usually Intro)
+            const firstP = htmlContent.indexOf('</p>');
+            if (firstP !== -1) {
+                htmlContent = htmlContent.slice(0, firstP + 4) + imgHtml + htmlContent.slice(firstP + 4);
+            } else {
+                // If structure is weird, put at top
+                htmlContent = imgHtml + htmlContent;
+            }
+        }
+    } else {
+        // Clean up placeholder if no image generated
+        htmlContent = htmlContent.replace('[[IMAGE_PLACEHOLDER]]', '');
+    }
+
     // Deduplicate sources
     const uniqueSources = Array.from(new Map(sources.map(item => [item.url, item])).values());
 
@@ -139,7 +168,7 @@ export const generateSyllabusNotes = async (
       subjectName: subject,
       classLevel,
       sources: uniqueSources,
-      generatedImage
+      generatedImage // Still assigning it for consistency, even if embedded in HTML
     };
 
     // 2. Save to Cache (only if text generation was successful)
