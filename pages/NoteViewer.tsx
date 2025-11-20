@@ -1,31 +1,88 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { generateSyllabusNotes } from '../services/geminiService';
-import { NoteContent } from '../types';
-import { ArrowLeft, BookOpen, Share2, Copy, ExternalLink, Loader2, ImageIcon } from 'lucide-react';
+import { generateSyllabusNotes, generateQuiz, generateSpeech } from '../services/geminiService';
+import { NoteContent, QuizQuestion } from '../types';
+import { ArrowLeft, BookOpen, Share2, Copy, ExternalLink, Loader2, Volume2, StopCircle, CheckCircle, XCircle, HelpCircle, BrainCircuit } from 'lucide-react';
+
+// Audio Decode Helpers
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number = 24000,
+  numChannels: number = 1,
+): Promise<AudioBuffer> {
+  // Handle potential padding issues if data length is odd/mismatch
+  const bufferSize = data.length;
+  const dataInt16 = new Int16Array(data.buffer, 0, Math.floor(bufferSize / 2)); 
+  
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
 
 const NoteViewer: React.FC = () => {
   const { classLevel, subject, topic } = useParams<{ classLevel: string; subject: string; topic: string }>();
+  
+  // Content State
   const [data, setData] = useState<NoteContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [detailLevel, setDetailLevel] = useState<'concise' | 'detailed'>('detailed');
+
+  // Quiz State
+  const [quiz, setQuiz] = useState<QuizQuestion[]>([]);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
+  
+  // Audio State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
-    const fetchNotes = async () => {
-      if (topic && subject && classLevel) {
-        setLoading(true);
-        const content = await generateSyllabusNotes(topic, subject, classLevel);
-        setData(content);
-        setLoading(false);
-      }
-    };
     fetchNotes();
-  }, [classLevel, subject, topic]);
+    // Reset states when topic changes
+    setQuiz([]);
+    setQuizStarted(false);
+    setUserAnswers({});
+    stopAudio();
+  }, [classLevel, subject, topic, detailLevel]);
+
+  useEffect(() => {
+    return () => stopAudio(); // Cleanup audio on unmount
+  }, []);
+
+  const fetchNotes = async () => {
+    if (topic && subject && classLevel) {
+      setLoading(true);
+      const content = await generateSyllabusNotes(topic, subject, classLevel, detailLevel);
+      setData(content);
+      setLoading(false);
+    }
+  };
 
   const handleCopy = () => {
     if (data?.htmlContent) {
-      // Create a temporary element to extract text from HTML
       const tempDiv = document.createElement("div");
       tempDiv.innerHTML = data.htmlContent;
       const text = tempDiv.textContent || tempDiv.innerText || "";
@@ -36,30 +93,117 @@ const NoteViewer: React.FC = () => {
     }
   };
 
+  // --- Audio Logic ---
+  const playAudio = async () => {
+    if (isPlaying) {
+      stopAudio();
+      return;
+    }
+    
+    if (!data?.htmlContent) return;
+
+    setAudioLoading(true);
+    try {
+      // Extract clean text
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = data.htmlContent;
+      const textToSpeak = `Here are your notes on ${topic}. ` + (tempDiv.textContent || "");
+
+      const base64Audio = await generateSpeech(textToSpeak);
+      
+      if (!base64Audio) throw new Error("No audio generated");
+
+      // Init Context
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      const ctx = audioContextRef.current;
+
+      // Decode
+      const bytes = decode(base64Audio);
+      const audioBuffer = await decodeAudioData(bytes, ctx, 24000, 1);
+
+      // Play
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => setIsPlaying(false);
+      source.start();
+      
+      sourceNodeRef.current = source;
+      setIsPlaying(true);
+
+    } catch (e) {
+      console.error("Audio playback failed", e);
+      alert("Could not play audio. Please try again.");
+    } finally {
+      setAudioLoading(false);
+    }
+  };
+
+  const stopAudio = () => {
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current = null;
+    }
+    setIsPlaying(false);
+  };
+
+  // --- Quiz Logic ---
+  const loadQuiz = async () => {
+    if (!topic || !subject || !classLevel) return;
+    setQuizLoading(true);
+    const questions = await generateQuiz(topic, subject, classLevel);
+    setQuiz(questions);
+    setQuizLoading(false);
+    setQuizStarted(true);
+  };
+
+  const handleAnswer = (questionIdx: number, optionIdx: number) => {
+    if (userAnswers[questionIdx] !== undefined) return; // Prevent changing answer
+    setUserAnswers(prev => ({ ...prev, [questionIdx]: optionIdx }));
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-16 z-40 shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div className="bg-white border-b border-gray-200 sticky top-0 md:top-16 z-40 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link 
             to={`/subject/${subject?.toLowerCase()}`} 
             className="flex items-center text-gray-600 hover:text-uganda-dark transition-colors"
           >
             <ArrowLeft className="h-5 w-5 mr-1" />
-            <span className="font-medium hidden sm:inline">Back to Subject</span>
+            <span className="font-medium hidden sm:inline">Back</span>
           </Link>
           
           <div className="flex items-center gap-2">
+             {/* Audio Toggle */}
+             <button 
+               onClick={playAudio}
+               disabled={loading || audioLoading}
+               className={`flex items-center px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                 isPlaying 
+                   ? 'bg-red-100 text-red-700 border border-red-200' 
+                   : 'bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100'
+               }`}
+             >
+               {audioLoading ? (
+                 <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+               ) : isPlaying ? (
+                 <StopCircle className="h-4 w-4 mr-1.5" />
+               ) : (
+                 <Volume2 className="h-4 w-4 mr-1.5" />
+               )}
+               <span className="hidden sm:inline">{isPlaying ? 'Stop Listening' : 'Listen to Notes'}</span>
+             </button>
+
              <button 
                 onClick={handleCopy}
                 className="flex items-center px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
              >
                 <Copy className="h-4 w-4 mr-1.5" />
-                {copied ? 'Copied!' : 'Copy Text'}
-             </button>
-             <button className="flex items-center px-3 py-1.5 text-sm font-medium text-white bg-uganda-green hover:bg-uganda-dark rounded-lg transition-colors shadow-sm">
-                <Share2 className="h-4 w-4 mr-1.5" />
-                Share
+                <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy'}</span>
              </button>
           </div>
         </div>
@@ -75,38 +219,154 @@ const NoteViewer: React.FC = () => {
               </div>
               <h2 className="mt-8 text-xl font-bold text-gray-800">Generating Notes...</h2>
               <p className="text-gray-500 mt-2 max-w-md">
-                 Our AI tutor is writing detailed notes and finding visuals for <span className="font-semibold text-uganda-green">{topic}</span>.
+                 Our AI tutor is writing {detailLevel} notes and finding visuals for <span className="font-semibold text-uganda-green">{topic}</span>.
               </p>
-              <div className="mt-6 flex gap-2">
-                 <span className="w-2 h-2 bg-uganda-green rounded-full animate-bounce" style={{ animationDelay: '0ms'}}></span>
-                 <span className="w-2 h-2 bg-uganda-green rounded-full animate-bounce" style={{ animationDelay: '150ms'}}></span>
-                 <span className="w-2 h-2 bg-uganda-green rounded-full animate-bounce" style={{ animationDelay: '300ms'}}></span>
-              </div>
            </div>
         ) : data ? (
           <div className="animate-in fade-in duration-500">
-            {/* Title Section */}
+            {/* Title & Controls */}
             <div className="mb-8 border-b border-gray-200 pb-6">
-               <div className="flex items-center gap-2 text-sm font-semibold text-uganda-green uppercase tracking-wide mb-2">
-                  <span className="bg-green-100 px-2 py-0.5 rounded">{classLevel}</span>
-                  <span>•</span>
-                  <span>{subject}</span>
+               <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-uganda-green uppercase tracking-wide">
+                     <span className="bg-green-100 px-2 py-0.5 rounded">{classLevel}</span>
+                     <span>•</span>
+                     <span>{subject}</span>
+                  </div>
+                  
+                  {/* Length Toggle */}
+                  <div className="flex bg-gray-100 rounded-lg p-1">
+                    <button 
+                      onClick={() => setDetailLevel('concise')}
+                      className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${detailLevel === 'concise' ? 'bg-white shadow text-uganda-dark' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Concise
+                    </button>
+                    <button 
+                      onClick={() => setDetailLevel('detailed')}
+                      className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${detailLevel === 'detailed' ? 'bg-white shadow text-uganda-dark' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Detailed
+                    </button>
+                  </div>
                </div>
                <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 leading-tight">
                   {topic}
                </h1>
             </div>
 
-            {/* AI Generated Content - Image is now embedded inside htmlContent */}
+            {/* AI Generated Content */}
             <article className="prose prose-lg prose-green max-w-none bg-white p-6 md:p-10 rounded-2xl shadow-sm border border-gray-100">
                <div dangerouslySetInnerHTML={{ __html: data.htmlContent }} />
             </article>
+
+            {/* Interactive Quiz Section */}
+            <div className="mt-12 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+               <div className="bg-gradient-to-r from-uganda-dark to-uganda-green p-6 text-white">
+                  <div className="flex items-center gap-3">
+                     <BrainCircuit className="h-8 w-8 opacity-90" />
+                     <div>
+                        <h3 className="text-xl font-bold">Knowledge Check</h3>
+                        <p className="text-green-100 text-sm">Test your understanding of this topic.</p>
+                     </div>
+                  </div>
+               </div>
+               
+               <div className="p-6 md:p-8">
+                  {!quizStarted ? (
+                     <div className="text-center py-8">
+                        <p className="text-gray-600 mb-6 max-w-lg mx-auto">
+                           Ready to test yourself? Click below to generate 5 multiple-choice questions based on these notes.
+                        </p>
+                        <button 
+                           onClick={loadQuiz}
+                           disabled={quizLoading}
+                           className="inline-flex items-center bg-uganda-green hover:bg-uganda-dark text-white px-8 py-3 rounded-full font-bold transition-colors shadow-md disabled:opacity-70"
+                        >
+                           {quizLoading ? (
+                              <>
+                                 <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                                 Generating Questions...
+                              </>
+                           ) : (
+                              "Start Quiz"
+                           )}
+                        </button>
+                     </div>
+                  ) : (
+                     <div className="space-y-8">
+                        {quiz.map((q, qIdx) => {
+                           const isAnswered = userAnswers[qIdx] !== undefined;
+                           const isCorrect = userAnswers[qIdx] === q.correctAnswerIndex;
+                           
+                           return (
+                              <div key={qIdx} className="border-b border-gray-100 pb-8 last:border-0 last:pb-0">
+                                 <h4 className="font-semibold text-lg text-gray-900 mb-4 flex gap-3">
+                                    <span className="text-gray-400">{qIdx + 1}.</span>
+                                    {q.question}
+                                 </h4>
+                                 <div className="grid gap-3 sm:grid-cols-2">
+                                    {q.options.map((option, oIdx) => {
+                                       let btnClass = "border-gray-200 hover:bg-gray-50 text-gray-700";
+                                       // Logic for coloring after answer
+                                       if (isAnswered) {
+                                          if (oIdx === q.correctAnswerIndex) {
+                                             btnClass = "bg-green-100 border-green-300 text-green-800 font-medium";
+                                          } else if (userAnswers[qIdx] === oIdx) {
+                                             btnClass = "bg-red-50 border-red-200 text-red-700";
+                                          } else {
+                                             btnClass = "opacity-50 border-gray-100 bg-gray-50";
+                                          }
+                                       }
+
+                                       return (
+                                          <button
+                                             key={oIdx}
+                                             onClick={() => handleAnswer(qIdx, oIdx)}
+                                             disabled={isAnswered}
+                                             className={`text-left p-4 rounded-xl border transition-all flex items-center justify-between ${btnClass} ${!isAnswered && 'hover:border-uganda-green hover:shadow-sm'}`}
+                                          >
+                                             <span>{option}</span>
+                                             {isAnswered && oIdx === q.correctAnswerIndex && <CheckCircle className="h-5 w-5 text-green-600" />}
+                                             {isAnswered && userAnswers[qIdx] === oIdx && oIdx !== q.correctAnswerIndex && <XCircle className="h-5 w-5 text-red-500" />}
+                                          </button>
+                                       );
+                                    })}
+                                 </div>
+                                 
+                                 {isAnswered && (
+                                    <div className={`mt-4 p-4 rounded-lg text-sm flex items-start gap-3 ${isCorrect ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800'}`}>
+                                       <HelpCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                       <div>
+                                          <span className="font-bold block mb-1">{isCorrect ? 'Correct!' : 'Explanation:'}</span>
+                                          {q.explanation}
+                                       </div>
+                                    </div>
+                                 )}
+                              </div>
+                           );
+                        })}
+                        
+                        {Object.keys(userAnswers).length === quiz.length && (
+                           <div className="bg-gray-900 text-white p-6 rounded-xl text-center animate-in zoom-in duration-300">
+                              <p className="text-lg opacity-80 mb-2">Quiz Complete!</p>
+                              <p className="text-4xl font-bold mb-4">
+                                 Score: {Object.values(userAnswers).filter((a, i) => a === quiz[i].correctAnswerIndex).length} / {quiz.length}
+                              </p>
+                              <button onClick={() => { setQuizStarted(false); setUserAnswers({}); setQuiz([]); }} className="text-sm underline hover:text-uganda-green">
+                                 Take Another Quiz
+                              </button>
+                           </div>
+                        )}
+                     </div>
+                  )}
+               </div>
+            </div>
 
             {/* Sources / References */}
             <div className="mt-10">
                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
                   <BookOpen className="h-5 w-5 mr-2 text-uganda-dark" />
-                  External Resources & References
+                  External Resources
                </h3>
                <div className="grid gap-3 sm:grid-cols-2">
                   {data.sources.length > 0 ? (
@@ -131,7 +391,7 @@ const NoteViewer: React.FC = () => {
                      ))
                   ) : (
                      <p className="text-gray-500 text-sm col-span-2">
-                        No specific external links were found, but the notes above are based on general NCDC curriculum standards.
+                        No external links found.
                      </p>
                   )}
                </div>

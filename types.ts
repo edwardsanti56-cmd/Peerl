@@ -37,6 +37,13 @@ export interface NoteContent {
   generatedImage?: string;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswerIndex: number;
+  explanation: string;
+}
+
 export interface SearchState {
   isLoading: boolean;
   results: SearchResult[];

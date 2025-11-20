@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, Chat } from "@google/genai";
-import { SearchResult, NoteContent } from '../types';
+import { GoogleGenAI, Chat, Type, Modality } from "@google/genai";
+import { SearchResult, NoteContent, QuizQuestion } from '../types';
 
 // Helper to get client with latest key to avoid initialization race conditions
 const getClient = () => {
@@ -23,11 +23,12 @@ export const createChatSession = (): Chat => {
 export const generateSyllabusNotes = async (
   topic: string, 
   subject: string, 
-  classLevel: string
+  classLevel: string,
+  detailLevel: 'concise' | 'detailed' = 'detailed'
 ): Promise<NoteContent> => {
   
-  // 1. Check Cache
-  const cacheKey = `${CACHE_PREFIX}${subject}_${classLevel}_${topic}`.replace(/[\s\W]+/g, '_').toLowerCase();
+  // 1. Check Cache (Key now includes detail level)
+  const cacheKey = `${CACHE_PREFIX}${subject}_${classLevel}_${topic}_${detailLevel}`.replace(/[\s\W]+/g, '_').toLowerCase();
   
   try {
     const cachedData = localStorage.getItem(cacheKey);
@@ -48,7 +49,7 @@ export const generateSyllabusNotes = async (
     // Optimized prompt for speed and structure
     const textPrompt = `
       You are a senior teacher for the Uganda NCDC Competency-Based Curriculum.
-      Generate concise yet detailed study notes for:
+      Generate ${detailLevel} study notes for:
       **Subject:** ${subject}
       **Class:** ${classLevel}
       **Topic:** ${topic}
@@ -64,9 +65,9 @@ export const generateSyllabusNotes = async (
          - Activity/Example Box: <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-5 my-6">
       3. **IMPORTANT**: Insert the text "[[IMAGE_PLACEHOLDER]]" exactly once in the HTML content. Place it where a diagram or visual illustration would be most educational (e.g., immediately following a description of structures, inside a key subtopic, or after the Introduction). Ensure it is placed BETWEEN paragraphs, not inside them.
 
-      **CONTENT STRUCTURE:**
+      **CONTENT STRUCTURE (${detailLevel === 'concise' ? 'Short Revision Mode' : 'Full Study Mode'}):**
       1. **Introduction**: Brief definition/overview.
-      2. **Key Subtopics**: Break the main topic into 3-5 distinct subtopics with detailed explanations.
+      2. **Key Subtopics**: Break the main topic into ${detailLevel === 'concise' ? '2-3 key points' : '3-5 detailed sections'}.
       3. **Local Relevance**: Cite examples relevant to Uganda/East Africa (e.g., Lake Victoria, Mt. Rwenzori, local crops, common names).
       4. **Competency Activity**: A short "Activity of Integration" or practical task.
       5. **Summary**: Bullet points of what to remember.
@@ -180,6 +181,64 @@ export const generateSyllabusNotes = async (
     };
   }
 };
+
+export const generateQuiz = async (topic: string, subject: string, classLevel: string): Promise<QuizQuestion[]> => {
+  const ai = getClient();
+  const prompt = `Generate 5 multiple-choice questions for ${classLevel} ${subject} students about "${topic}".
+  For each question, provide 4 options, the correct answer index (0-3), and a brief explanation of why it is correct.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              question: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswerIndex: { type: Type.INTEGER },
+              explanation: { type: Type.STRING }
+            },
+            required: ['question', 'options', 'correctAnswerIndex', 'explanation'],
+            propertyOrdering: ['question', 'options', 'correctAnswerIndex', 'explanation']
+          }
+        }
+      }
+    });
+    return JSON.parse(response.text || '[]');
+  } catch (e) {
+    console.error("Quiz generation failed", e);
+    return [];
+  }
+};
+
+export const generateSpeech = async (text: string): Promise<string | undefined> => {
+  const ai = getClient();
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-preview-tts',
+      contents: {
+        parts: [{ text: text.substring(0, 4000) }] // Limit text for TTS safety
+      },
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
+          }
+        }
+      }
+    });
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  } catch (e) {
+    console.error("TTS failed", e);
+    return undefined;
+  }
+}
 
 export const searchNCDCResources = async (query: string, classLevel?: string, subject?: string): Promise<SearchResult[]> => {
   const ai = getClient();

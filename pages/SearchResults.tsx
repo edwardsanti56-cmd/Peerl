@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { searchNCDCResources } from '../services/geminiService';
 import { SearchResult } from '../types';
-import { ExternalLink, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { ExternalLink, Loader2, AlertCircle, ArrowLeft, Search } from 'lucide-react';
 
 const SearchResults: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -107,8 +107,5 @@ const SearchResults: React.FC = () => {
     </div>
   );
 };
-
-// Helper component import for Search icon fallback
-import { Search } from 'lucide-react';
 
 export default SearchResults;
