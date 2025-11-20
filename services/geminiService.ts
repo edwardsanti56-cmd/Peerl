@@ -76,11 +76,11 @@ export const generateSyllabusNotes = async (
     `;
 
     // Request both Text and Image in parallel
+    // REMOVED thinkingConfig to ensure compatibility with tools and avoid errors
     const textRequest = ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: textPrompt,
       config: {
-        thinkingConfig: { thinkingBudget: 0 },
         tools: [{ googleSearch: {} }],
       },
     });
@@ -121,7 +121,10 @@ export const generateSyllabusNotes = async (
       }
     } else {
        console.error("Text generation failed", textResponseResult.reason);
-       htmlContent = `<div class="p-4 bg-red-50 text-red-700">Error generating notes. Please try again.</div>`;
+       htmlContent = `<div class="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
+          <p class="font-bold">Error generating notes.</p>
+          <p class="text-sm mt-1">Please check your internet connection and try again.</p>
+       </div>`;
     }
 
     // Process Image Response
@@ -164,10 +167,12 @@ export const generateSyllabusNotes = async (
       generatedImage
     };
 
-    // Save to Cache
-    try {
-       localStorage.setItem(cacheKey, JSON.stringify(resultData));
-    } catch (e) { console.warn("Cache full", e); }
+    // Save to Cache if successful
+    if (textResponseResult.status === 'fulfilled') {
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(resultData));
+        } catch (e) { console.warn("Cache full", e); }
+    }
 
     return resultData;
   } catch (error) {

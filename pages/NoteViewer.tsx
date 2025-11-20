@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { generateSyllabusNotes, generateQuiz, generateSpeech } from '../services/geminiService';
 import { NoteContent, QuizQuestion } from '../types';
-import { ArrowLeft, BookOpen, Share2, Copy, ExternalLink, Loader2, Volume2, StopCircle, CheckCircle, XCircle, HelpCircle, BrainCircuit } from 'lucide-react';
+import { ArrowLeft, BookOpen, Copy, ExternalLink, Loader2, Volume2, StopCircle, CheckCircle, XCircle, HelpCircle, BrainCircuit } from 'lucide-react';
 
 // Audio Decode Helpers
 function decode(base64: string) {
@@ -22,9 +22,10 @@ async function decodeAudioData(
   sampleRate: number = 24000,
   numChannels: number = 1,
 ): Promise<AudioBuffer> {
-  // Handle potential padding issues if data length is odd/mismatch
-  const bufferSize = data.length;
-  const dataInt16 = new Int16Array(data.buffer, 0, Math.floor(bufferSize / 2)); 
+  // Create a copy of the buffer to ensure byte alignment for Int16Array
+  // data.slice() returns a new Uint8Array with a fresh, aligned ArrayBuffer
+  const alignedData = data.slice();
+  const dataInt16 = new Int16Array(alignedData.buffer);
   
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
@@ -280,132 +281,4 @@ const NoteViewer: React.FC = () => {
                         <button 
                            onClick={loadQuiz}
                            disabled={quizLoading}
-                           className="inline-flex items-center bg-uganda-green hover:bg-uganda-dark text-white px-8 py-3 rounded-full font-bold transition-colors shadow-md disabled:opacity-70"
-                        >
-                           {quizLoading ? (
-                              <>
-                                 <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                                 Generating Questions...
-                              </>
-                           ) : (
-                              "Start Quiz"
-                           )}
-                        </button>
-                     </div>
-                  ) : (
-                     <div className="space-y-8">
-                        {quiz.map((q, qIdx) => {
-                           const isAnswered = userAnswers[qIdx] !== undefined;
-                           const isCorrect = userAnswers[qIdx] === q.correctAnswerIndex;
-                           
-                           return (
-                              <div key={qIdx} className="border-b border-gray-100 pb-8 last:border-0 last:pb-0">
-                                 <h4 className="font-semibold text-lg text-gray-900 mb-4 flex gap-3">
-                                    <span className="text-gray-400">{qIdx + 1}.</span>
-                                    {q.question}
-                                 </h4>
-                                 <div className="grid gap-3 sm:grid-cols-2">
-                                    {q.options.map((option, oIdx) => {
-                                       let btnClass = "border-gray-200 hover:bg-gray-50 text-gray-700";
-                                       // Logic for coloring after answer
-                                       if (isAnswered) {
-                                          if (oIdx === q.correctAnswerIndex) {
-                                             btnClass = "bg-green-100 border-green-300 text-green-800 font-medium";
-                                          } else if (userAnswers[qIdx] === oIdx) {
-                                             btnClass = "bg-red-50 border-red-200 text-red-700";
-                                          } else {
-                                             btnClass = "opacity-50 border-gray-100 bg-gray-50";
-                                          }
-                                       }
-
-                                       return (
-                                          <button
-                                             key={oIdx}
-                                             onClick={() => handleAnswer(qIdx, oIdx)}
-                                             disabled={isAnswered}
-                                             className={`text-left p-4 rounded-xl border transition-all flex items-center justify-between ${btnClass} ${!isAnswered && 'hover:border-uganda-green hover:shadow-sm'}`}
-                                          >
-                                             <span>{option}</span>
-                                             {isAnswered && oIdx === q.correctAnswerIndex && <CheckCircle className="h-5 w-5 text-green-600" />}
-                                             {isAnswered && userAnswers[qIdx] === oIdx && oIdx !== q.correctAnswerIndex && <XCircle className="h-5 w-5 text-red-500" />}
-                                          </button>
-                                       );
-                                    })}
-                                 </div>
-                                 
-                                 {isAnswered && (
-                                    <div className={`mt-4 p-4 rounded-lg text-sm flex items-start gap-3 ${isCorrect ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-800'}`}>
-                                       <HelpCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                                       <div>
-                                          <span className="font-bold block mb-1">{isCorrect ? 'Correct!' : 'Explanation:'}</span>
-                                          {q.explanation}
-                                       </div>
-                                    </div>
-                                 )}
-                              </div>
-                           );
-                        })}
-                        
-                        {Object.keys(userAnswers).length === quiz.length && (
-                           <div className="bg-gray-900 text-white p-6 rounded-xl text-center animate-in zoom-in duration-300">
-                              <p className="text-lg opacity-80 mb-2">Quiz Complete!</p>
-                              <p className="text-4xl font-bold mb-4">
-                                 Score: {Object.values(userAnswers).filter((a, i) => a === quiz[i].correctAnswerIndex).length} / {quiz.length}
-                              </p>
-                              <button onClick={() => { setQuizStarted(false); setUserAnswers({}); setQuiz([]); }} className="text-sm underline hover:text-uganda-green">
-                                 Take Another Quiz
-                              </button>
-                           </div>
-                        )}
-                     </div>
-                  )}
-               </div>
-            </div>
-
-            {/* Sources / References */}
-            <div className="mt-10">
-               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                  <BookOpen className="h-5 w-5 mr-2 text-uganda-dark" />
-                  External Resources
-               </h3>
-               <div className="grid gap-3 sm:grid-cols-2">
-                  {data.sources.length > 0 ? (
-                     data.sources.map((source, idx) => (
-                        <a 
-                           key={idx}
-                           href={source.url}
-                           target="_blank"
-                           rel="noopener noreferrer"
-                           className="flex items-start p-3 rounded-lg border border-gray-200 hover:border-uganda-green hover:bg-green-50 transition-all group"
-                        >
-                           <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 truncate group-hover:text-uganda-dark">
-                                 {source.title}
-                              </p>
-                              <p className="text-xs text-gray-500 mt-0.5 truncate">
-                                 {source.source}
-                              </p>
-                           </div>
-                           <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-uganda-green ml-2" />
-                        </a>
-                     ))
-                  ) : (
-                     <p className="text-gray-500 text-sm col-span-2">
-                        No external links found.
-                     </p>
-                  )}
-               </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-20">
-            <p className="text-red-600 font-medium">Failed to load content.</p>
-            <Link to="/" className="text-uganda-green hover:underline mt-4 inline-block">Return Home</Link>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export default NoteViewer;
+                           className="inline-flex items-center bg-uganda-green hover:bg-uganda-dark text-white px-8 py-3 rounded
