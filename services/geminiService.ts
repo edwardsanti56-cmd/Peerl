@@ -1,14 +1,12 @@
 
 import { GoogleGenAI, Chat, Type, Modality } from "@google/genai";
-import { SearchResult, NoteContent, QuizQuestion, SavedNoteSummary } from '../types';
+import { SearchResult, NoteContent, QuizQuestion } from '../types';
 
 // Helper to get client with latest key to avoid initialization race conditions
 const getClient = () => {
     const apiKey = process.env.API_KEY || '';
     return new GoogleGenAI({ apiKey });
 }
-
-const CACHE_PREFIX = 'pearl_notes_cache_v2_';
 
 export const createChatSession = (): Chat => {
   const ai = getClient();
@@ -27,22 +25,6 @@ export const generateSyllabusNotes = async (
   detailLevel: 'concise' | 'detailed' = 'detailed'
 ): Promise<NoteContent> => {
   
-  // 1. Check Cache (Key now includes detail level)
-  const cacheKey = `${CACHE_PREFIX}${subject}_${classLevel}_${topic}_${detailLevel}`.replace(/[\s\W]+/g, '_').toLowerCase();
-  
-  try {
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-      const parsed = JSON.parse(cachedData);
-      if (parsed && parsed.htmlContent) {
-        console.log(`Serving notes from cache for: ${topic}`);
-        return parsed as NoteContent;
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to read from cache", e);
-  }
-
   const ai = getClient(); // Initialize client here
 
   try {
@@ -76,7 +58,6 @@ export const generateSyllabusNotes = async (
     `;
 
     // Request both Text and Image in parallel
-    // Note: Removed googleSearch tool to ensure strict HTML output and prevent formatting issues.
     const textRequest = ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: textPrompt,
@@ -158,13 +139,6 @@ export const generateSyllabusNotes = async (
       noteType: detailLevel
     };
 
-    // Save to Cache if successful
-    if (htmlContent && htmlContent.length > 100) {
-        try {
-            localStorage.setItem(cacheKey, JSON.stringify(resultData));
-        } catch (e) { console.warn("Cache full", e); }
-    }
-
     return resultData;
   } catch (error) {
     console.error("Error generating notes:", error);
@@ -176,38 +150,6 @@ export const generateSyllabusNotes = async (
       sources: []
     };
   }
-};
-
-// --- Offline Management Functions ---
-
-export const getSavedNotes = (): SavedNoteSummary[] => {
-  const notes: SavedNoteSummary[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith(CACHE_PREFIX)) {
-      try {
-        const item = localStorage.getItem(key);
-        if (item) {
-          const parsed = JSON.parse(item) as NoteContent;
-          notes.push({
-            key: key,
-            topic: parsed.topicName,
-            subject: parsed.subjectName,
-            classLevel: parsed.classLevel,
-            timestamp: parsed.timestamp || Date.now(),
-            noteType: parsed.noteType || 'detailed'
-          });
-        }
-      } catch (e) {
-        console.warn("Error parsing saved note", e);
-      }
-    }
-  }
-  return notes.sort((a, b) => b.timestamp - a.timestamp);
-};
-
-export const deleteSavedNote = (key: string) => {
-  localStorage.removeItem(key);
 };
 
 export const generateQuiz = async (topic: string, subject: string, classLevel: string): Promise<QuizQuestion[]> => {
