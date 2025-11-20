@@ -55,8 +55,8 @@ export const generateSyllabusNotes = async (
       **Topic:** ${topic}
 
       **OUTPUT RULES:**
-      1. Return ONLY raw HTML body content. No <html>, <head>, or markdown backticks.
-      2. Use these Tailwind classes:
+      1. Return ONLY raw HTML body content. Do not include <html>, <head>, <body> tags, or markdown backticks (like \`\`\`html).
+      2. Use these Tailwind classes for styling:
          - Headers: <h2 class="text-2xl font-bold text-uganda-dark mt-8 mb-4 border-b border-gray-200 pb-2">
          - Subheaders: <h3 class="text-xl font-semibold text-uganda-green mt-6 mb-3">
          - Paragraphs: <p class="mb-4 leading-relaxed text-gray-800">
@@ -76,12 +76,10 @@ export const generateSyllabusNotes = async (
     `;
 
     // Request both Text and Image in parallel
+    // Note: Removed googleSearch tool to ensure strict HTML output and prevent formatting issues.
     const textRequest = ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: textPrompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
     });
 
     const imageRequest = ai.models.generateImages({
@@ -103,27 +101,19 @@ export const generateSyllabusNotes = async (
     if (textResponseResult.status === 'fulfilled') {
       const response = textResponseResult.value;
       htmlContent = response.text || "";
+      
+      // Clean up any markdown if the model added it despite instructions
       htmlContent = htmlContent.replace(/```html/g, '').replace(/```/g, '');
-
-      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-      if (groundingChunks) {
-        groundingChunks.forEach((chunk: any) => {
-          if (chunk.web) {
-            sources.push({
-              title: chunk.web.title || "External Resource",
-              url: chunk.web.uri,
-              source: new URL(chunk.web.uri).hostname,
-              snippet: "Reference link found via Google Search."
-            });
-          }
-        });
+      
+      if (!htmlContent.trim()) {
+          throw new Error("Received empty response from AI model.");
       }
+
+      // Since we removed Google Search for stability, sources will be empty for notes.
+      // This is acceptable as the model uses internal knowledge for syllabus notes.
     } else {
        console.error("Text generation failed", textResponseResult.reason);
-       htmlContent = `<div class="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
-          <p class="font-bold">Error generating notes.</p>
-          <p class="text-sm mt-1">Please check your internet connection and try again.</p>
-       </div>`;
+       throw new Error("Text generation request failed.");
     }
 
     // Process Image Response
@@ -169,7 +159,7 @@ export const generateSyllabusNotes = async (
     };
 
     // Save to Cache if successful
-    if (textResponseResult.status === 'fulfilled') {
+    if (htmlContent && htmlContent.length > 100) {
         try {
             localStorage.setItem(cacheKey, JSON.stringify(resultData));
         } catch (e) { console.warn("Cache full", e); }
@@ -179,7 +169,7 @@ export const generateSyllabusNotes = async (
   } catch (error) {
     console.error("Error generating notes:", error);
     return {
-      htmlContent: "<p class='text-red-500'>Failed to generate notes. Please check your connection.</p>",
+      htmlContent: "<div class='p-6 bg-red-50 text-red-700 border border-red-200 rounded-xl'><h3 class='font-bold text-lg mb-2'>Unable to Generate Notes</h3><p>We encountered an issue while creating these notes. This usually happens due to network connectivity or a temporary service interruption.</p><p class='mt-4'><button onclick='window.location.reload()' class='underline font-semibold hover:text-red-900'>Tap to retry</button></p></div>",
       topicName: topic,
       subjectName: subject,
       classLevel: classLevel,
