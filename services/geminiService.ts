@@ -1,12 +1,24 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Chat } from "@google/genai";
 import { SearchResult, NoteContent } from '../types';
 
-// Initialize the client
-const apiKey = process.env.API_KEY || ''; 
-const ai = new GoogleGenAI({ apiKey });
+// Helper to get client with latest key to avoid initialization race conditions
+const getClient = () => {
+    const apiKey = process.env.API_KEY || '';
+    return new GoogleGenAI({ apiKey });
+}
 
 const CACHE_PREFIX = 'pearl_notes_cache_v2_';
+
+export const createChatSession = (): Chat => {
+  const ai = getClient();
+  return ai.chats.create({
+    model: "gemini-2.5-flash",
+    config: {
+      systemInstruction: "You are a friendly and helpful AI tutor for Ugandan students. You specialize in the NCDC Competency-Based Curriculum for secondary schools (S1-S4). Help students understand complex topics in subjects like Biology, Math, Physics, History, etc.\n\n**FORMATTING RULES:**\n- Use **bold** for key terms and concepts.\n- Use bullet points ( - or * ) for lists, steps, or examples.\n- Use ### for headers to organize your response.\n- Keep paragraphs short and readable.\n- Be encouraging and use local examples where possible.",
+    }
+  });
+};
 
 export const generateSyllabusNotes = async (
   topic: string, 
@@ -30,15 +42,7 @@ export const generateSyllabusNotes = async (
     console.warn("Failed to read from cache", e);
   }
 
-  if (!apiKey) {
-    return {
-      htmlContent: "<p class='text-red-500'>API Key is missing. Please configure the API_KEY.</p>",
-      topicName: topic,
-      subjectName: subject,
-      classLevel: classLevel,
-      sources: []
-    };
-  }
+  const ai = getClient(); // Initialize client here
 
   try {
     // Optimized prompt for speed and structure
@@ -72,7 +76,7 @@ export const generateSyllabusNotes = async (
 
     // Request both Text and Image in parallel
     const textRequest = ai.models.generateContent({
-      model: "gemini-2.5-flash", // Fast model
+      model: "gemini-2.5-flash",
       contents: textPrompt,
       config: {
         thinkingConfig: { thinkingBudget: 0 },
@@ -80,7 +84,6 @@ export const generateSyllabusNotes = async (
       },
     });
 
-    // Image generation request using Imagen
     const imageRequest = ai.models.generateImages({
       model: 'imagen-4.0-generate-001',
       prompt: `Educational illustration or diagram of ${topic} related to ${subject}. Scientific, clear, high quality, white background preferred.`,
@@ -91,7 +94,6 @@ export const generateSyllabusNotes = async (
       },
     });
 
-    // Execute in parallel, but don't let image failure stop text
     const [textResponseResult, imageResponseResult] = await Promise.allSettled([textRequest, imageRequest]);
 
     // Process Text Response
@@ -117,7 +119,6 @@ export const generateSyllabusNotes = async (
         });
       }
     } else {
-       // Fallback if text generation fails entirely
        console.error("Text generation failed", textResponseResult.reason);
        htmlContent = `<div class="p-4 bg-red-50 text-red-700">Error generating notes. Please try again.</div>`;
     }
@@ -133,62 +134,45 @@ export const generateSyllabusNotes = async (
 
     // Inject Image into HTML
     if (generatedImage) {
-        const imgHtml = `
+      const imgHtml = `
           <figure class="my-8 rounded-xl overflow-hidden shadow-sm border border-gray-100 bg-white max-w-3xl mx-auto">
              <img src="${generatedImage}" alt="AI Illustration: ${topic}" class="w-full h-auto object-cover" />
-             <figcaption class="bg-gray-50 p-3 border-t border-gray-100 flex items-center justify-center text-xs text-gray-500 font-medium">
-                <span class="mr-1">✨</span> AI Generated Illustration: ${topic}
+             <figcaption class="p-3 text-center text-sm text-gray-500 bg-gray-50 border-t border-gray-100">
+               AI Generated Diagram: ${topic}
              </figcaption>
           </figure>
-        `;
-
-        if (htmlContent.includes('[[IMAGE_PLACEHOLDER]]')) {
-            htmlContent = htmlContent.replace('[[IMAGE_PLACEHOLDER]]', imgHtml);
-        } else {
-            // Fallback: Insert after the first closing paragraph tag (usually Intro)
-            const firstP = htmlContent.indexOf('</p>');
-            if (firstP !== -1) {
-                htmlContent = htmlContent.slice(0, firstP + 4) + imgHtml + htmlContent.slice(firstP + 4);
-            } else {
-                // If structure is weird, put at top
-                htmlContent = imgHtml + htmlContent;
-            }
-        }
+      `;
+      
+      if (htmlContent.includes('[[IMAGE_PLACEHOLDER]]')) {
+        htmlContent = htmlContent.replace('[[IMAGE_PLACEHOLDER]]', imgHtml);
+      } else {
+        // Fallback: insert after first paragraph or at top
+         htmlContent = imgHtml + htmlContent;
+      }
     } else {
-        // Clean up placeholder if no image generated
-        htmlContent = htmlContent.replace('[[IMAGE_PLACEHOLDER]]', '');
+       // Remove placeholder if no image
+       htmlContent = htmlContent.replace('[[IMAGE_PLACEHOLDER]]', '');
     }
 
-    // Deduplicate sources
-    const uniqueSources = Array.from(new Map(sources.map(item => [item.url, item])).values());
-
-    const result: NoteContent = {
+    const resultData: NoteContent = {
       htmlContent,
       topicName: topic,
       subjectName: subject,
-      classLevel,
-      sources: uniqueSources,
-      generatedImage // Still assigning it for consistency, even if embedded in HTML
+      classLevel: classLevel,
+      sources: sources,
+      generatedImage
     };
 
-    // 2. Save to Cache (only if text generation was successful)
-    if (textResponseResult.status === 'fulfilled') {
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(result));
-      } catch (e) {
-        console.warn("Failed to save to cache (likely quota exceeded)", e);
-      }
-    }
+    // Save to Cache
+    try {
+       localStorage.setItem(cacheKey, JSON.stringify(resultData));
+    } catch (e) { console.warn("Cache full", e); }
 
-    return result;
-
+    return resultData;
   } catch (error) {
-    console.error("Generation error:", error);
+    console.error("Error generating notes:", error);
     return {
-      htmlContent: `<div class="p-6 bg-red-50 text-red-700 rounded-lg border border-red-200">
-        <h3 class="font-bold text-lg mb-2">Connection Error</h3>
-        <p>We couldn't generate notes for this topic right now. Please check your internet connection and try again.</p>
-      </div>`,
+      htmlContent: "<p class='text-red-500'>Failed to generate notes. Please try again.</p>",
       topicName: topic,
       subjectName: subject,
       classLevel: classLevel,
@@ -197,7 +181,29 @@ export const generateSyllabusNotes = async (
   }
 };
 
-// Retaining search interface compatibility
 export const searchNCDCResources = async (query: string, classLevel?: string, subject?: string): Promise<SearchResult[]> => {
-   return [];
-};
+  const ai = getClient();
+  const prompt = `Search for educational resources related to: ${query} ${classLevel || ''} ${subject || ''} in the context of Uganda NCDC curriculum.`;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] }
+    });
+    
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    return chunks.map((chunk: any) => {
+        if (!chunk.web?.uri) return null;
+        return {
+            title: chunk.web?.title || "Resource",
+            url: chunk.web?.uri,
+            source: new URL(chunk.web?.uri).hostname,
+            snippet: "Relevant resource found via Google Search."
+        };
+    }).filter((r: any) => r !== null);
+  } catch (e) {
+    console.error("Search failed", e);
+    return [];
+  }
+}
