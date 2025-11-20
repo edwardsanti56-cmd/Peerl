@@ -1,15 +1,17 @@
+
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { SUBJECTS, getTopicsForSubject, CLASSES } from '../constants';
 import { ClassLevel } from '../types';
 import Hero from '../components/Hero';
 import TopicList from '../components/TopicList';
-import { Filter, BookOpen } from 'lucide-react';
+import { Filter, BookOpen, Sparkles, ArrowRight, Search } from 'lucide-react';
 
 const SubjectPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [selectedClass, setSelectedClass] = useState<ClassLevel>(ClassLevel.S1);
+  const [customTopic, setCustomTopic] = useState('');
 
   const subject = SUBJECTS.find((s) => s.id === id);
 
@@ -17,6 +19,14 @@ const SubjectPage: React.FC = () => {
     if (!subject) return [];
     return getTopicsForSubject(subject.id, selectedClass);
   }, [subject, selectedClass]);
+
+  const handleCustomTopicSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customTopic.trim() && subject) {
+      const url = `/notes/${encodeURIComponent(selectedClass)}/${encodeURIComponent(subject.name)}/${encodeURIComponent(customTopic.trim())}`;
+      navigate(url);
+    }
+  };
 
   if (!subject) {
     return (
@@ -87,8 +97,35 @@ const SubjectPage: React.FC = () => {
                    {selectedClass} <span className="text-gray-400">/</span> {subject.name}
                 </h2>
                 <p className="text-gray-500 mt-2">
-                   Select a topic below to generate detailed study notes.
+                   Select a topic below to generate detailed study notes, or enter your own topic.
                 </p>
+             </div>
+
+             {/* Custom Topic Input */}
+             <div className="bg-gradient-to-r from-uganda-light to-white p-6 rounded-xl border border-uganda-green/20 mb-8 shadow-sm">
+                <h3 className="font-bold text-uganda-dark mb-2 flex items-center">
+                  <Sparkles className="h-5 w-5 mr-2 text-uganda-green" />
+                  Can't find a specific topic?
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Our syllabus list is growing, but you can generate notes for <strong>any</strong> topic instantly.
+                </p>
+                <form onSubmit={handleCustomTopicSearch} className="flex flex-col sm:flex-row gap-2">
+                  <input 
+                    type="text" 
+                    value={customTopic}
+                    onChange={(e) => setCustomTopic(e.target.value)}
+                    placeholder={`Enter topic name (e.g. "Structure of the Heart")...`}
+                    className="flex-1 border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-uganda-green/50 focus:outline-none shadow-sm"
+                  />
+                  <button 
+                    type="submit"
+                    disabled={!customTopic.trim()}
+                    className="bg-uganda-dark disabled:opacity-50 text-white px-6 py-3 rounded-lg font-medium hover:bg-uganda-green transition-colors flex items-center justify-center shadow-sm whitespace-nowrap"
+                  >
+                    Generate Notes <ArrowRight className="ml-2 h-4 w-4" />
+                  </button>
+                </form>
              </div>
              
              <TopicList 
