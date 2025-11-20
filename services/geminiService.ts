@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Chat, Type, Modality } from "@google/genai";
-import { SearchResult, NoteContent, QuizQuestion } from '../types';
+import { SearchResult, NoteContent, QuizQuestion, SavedNoteSummary } from '../types';
 
 // Helper to get client with latest key to avoid initialization race conditions
 const getClient = () => {
@@ -76,7 +76,6 @@ export const generateSyllabusNotes = async (
     `;
 
     // Request both Text and Image in parallel
-    // REMOVED thinkingConfig to ensure compatibility with tools and avoid errors
     const textRequest = ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: textPrompt,
@@ -164,7 +163,9 @@ export const generateSyllabusNotes = async (
       subjectName: subject,
       classLevel: classLevel,
       sources: sources,
-      generatedImage
+      generatedImage,
+      timestamp: Date.now(),
+      noteType: detailLevel
     };
 
     // Save to Cache if successful
@@ -178,13 +179,45 @@ export const generateSyllabusNotes = async (
   } catch (error) {
     console.error("Error generating notes:", error);
     return {
-      htmlContent: "<p class='text-red-500'>Failed to generate notes. Please try again.</p>",
+      htmlContent: "<p class='text-red-500'>Failed to generate notes. Please check your connection.</p>",
       topicName: topic,
       subjectName: subject,
       classLevel: classLevel,
       sources: []
     };
   }
+};
+
+// --- Offline Management Functions ---
+
+export const getSavedNotes = (): SavedNoteSummary[] => {
+  const notes: SavedNoteSummary[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(CACHE_PREFIX)) {
+      try {
+        const item = localStorage.getItem(key);
+        if (item) {
+          const parsed = JSON.parse(item) as NoteContent;
+          notes.push({
+            key: key,
+            topic: parsed.topicName,
+            subject: parsed.subjectName,
+            classLevel: parsed.classLevel,
+            timestamp: parsed.timestamp || Date.now(),
+            noteType: parsed.noteType || 'detailed'
+          });
+        }
+      } catch (e) {
+        console.warn("Error parsing saved note", e);
+      }
+    }
+  }
+  return notes.sort((a, b) => b.timestamp - a.timestamp);
+};
+
+export const deleteSavedNote = (key: string) => {
+  localStorage.removeItem(key);
 };
 
 export const generateQuiz = async (topic: string, subject: string, classLevel: string): Promise<QuizQuestion[]> => {

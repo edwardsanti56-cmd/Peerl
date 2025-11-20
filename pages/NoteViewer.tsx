@@ -1,9 +1,9 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { generateSyllabusNotes, generateQuiz, generateSpeech } from '../services/geminiService';
 import { NoteContent, QuizQuestion } from '../types';
-import { ArrowLeft, BookOpen, Copy, ExternalLink, Loader2, Volume2, StopCircle, CheckCircle, XCircle, HelpCircle, BrainCircuit } from 'lucide-react';
+import { ArrowLeft, Copy, Loader2, Volume2, StopCircle, BrainCircuit } from 'lucide-react';
 
 // Audio Decode Helpers
 function decode(base64: string) {
@@ -41,12 +41,14 @@ async function decodeAudioData(
 
 const NoteViewer: React.FC = () => {
   const { classLevel, subject, topic } = useParams<{ classLevel: string; subject: string; topic: string }>();
+  const [searchParams] = useSearchParams();
+  const typeParam = searchParams.get('type') as 'concise' | 'detailed' | null;
   
   // Content State
   const [data, setData] = useState<NoteContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [detailLevel, setDetailLevel] = useState<'concise' | 'detailed'>('detailed');
+  const [detailLevel, setDetailLevel] = useState<'concise' | 'detailed'>(typeParam || 'detailed');
 
   // Quiz State
   const [quiz, setQuiz] = useState<QuizQuestion[]>([]);
@@ -59,6 +61,12 @@ const NoteViewer: React.FC = () => {
   const [audioLoading, setAudioLoading] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+
+  useEffect(() => {
+    if (typeParam && typeParam !== detailLevel) {
+        setDetailLevel(typeParam);
+    }
+  }, [typeParam]);
 
   useEffect(() => {
     fetchNotes();
@@ -166,7 +174,7 @@ const NoteViewer: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 md:top-16 z-40 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -196,7 +204,7 @@ const NoteViewer: React.FC = () => {
                ) : (
                  <Volume2 className="h-4 w-4 mr-1.5" />
                )}
-               <span className="hidden sm:inline">{isPlaying ? 'Stop Listening' : 'Listen to Notes'}</span>
+               <span className="hidden sm:inline">{isPlaying ? 'Stop Listening' : 'Listen'}</span>
              </button>
 
              <button 
@@ -281,4 +289,87 @@ const NoteViewer: React.FC = () => {
                         <button 
                            onClick={loadQuiz}
                            disabled={quizLoading}
-                           className="inline-flex items-center bg-uganda-green hover:bg-uganda-dark text-white px-8 py-3 rounded
+                           className="inline-flex items-center bg-uganda-green hover:bg-uganda-dark text-white px-8 py-3 rounded-full font-semibold transition-colors disabled:opacity-50"
+                        >
+                           {quizLoading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
+                           {quizLoading ? 'Generating Quiz...' : 'Start Quiz'}
+                        </button>
+                     </div>
+                  ) : (
+                     <div className="space-y-8">
+                        {quiz.length === 0 && <p className="text-center text-red-500">Failed to load quiz. Please try again.</p>}
+                        {quiz.map((q, idx) => {
+                           const answered = userAnswers[idx] !== undefined;
+                           const isCorrect = userAnswers[idx] === q.correctAnswerIndex;
+                           
+                           return (
+                              <div key={idx} className="border-b border-gray-100 pb-8 last:border-0">
+                                 <p className="font-semibold text-lg text-gray-900 mb-4">
+                                    <span className="text-gray-400 mr-2">{idx + 1}.</span>
+                                    {q.question}
+                                 </p>
+                                 <div className="space-y-3">
+                                    {q.options.map((opt, optIdx) => {
+                                       let btnClass = "w-full text-left px-4 py-3 rounded-lg border transition-all ";
+                                       if (answered) {
+                                          if (optIdx === q.correctAnswerIndex) btnClass += "bg-green-100 border-green-300 text-green-800";
+                                          else if (optIdx === userAnswers[idx]) btnClass += "bg-red-50 border-red-200 text-red-700";
+                                          else btnClass += "bg-gray-50 border-gray-100 text-gray-400";
+                                       } else {
+                                          btnClass += "bg-white border-gray-200 hover:border-uganda-green hover:bg-green-50 text-gray-700";
+                                       }
+
+                                       return (
+                                          <button 
+                                             key={optIdx}
+                                             onClick={() => handleAnswer(idx, optIdx)}
+                                             disabled={answered}
+                                             className={btnClass}
+                                          >
+                                             {opt}
+                                          </button>
+                                       );
+                                    })}
+                                 </div>
+                                 {answered && (
+                                    <div className={`mt-4 p-4 rounded-lg ${isCorrect ? 'bg-green-50 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                                       <p className="font-medium text-sm flex items-center gap-2">
+                                          {isCorrect ? <span className="text-green-600 font-bold">Correct!</span> : <span className="text-red-500 font-bold">Incorrect.</span>}
+                                          {q.explanation}
+                                       </p>
+                                    </div>
+                                 )}
+                              </div>
+                           );
+                        })}
+                        
+                        {Object.keys(userAnswers).length === quiz.length && (
+                           <div className="text-center pt-4">
+                              <button 
+                                 onClick={() => {
+                                    setQuizStarted(false);
+                                    setUserAnswers({});
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                 }}
+                                 className="text-uganda-green font-medium hover:underline"
+                              >
+                                 Reset Quiz
+                              </button>
+                           </div>
+                        )}
+                     </div>
+                  )}
+               </div>
+            </div>
+          </div>
+        ) : (
+           <div className="text-center py-20">
+              <p className="text-red-500">Failed to load content.</p>
+           </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default NoteViewer;

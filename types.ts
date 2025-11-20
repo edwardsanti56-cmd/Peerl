@@ -35,6 +35,8 @@ export interface NoteContent {
   classLevel: string;
   sources: SearchResult[];
   generatedImage?: string;
+  timestamp?: number;
+  noteType?: 'concise' | 'detailed';
 }
 
 export interface QuizQuestion {
@@ -49,4 +51,13 @@ export interface SearchState {
   results: SearchResult[];
   query: string;
   error: string | null;
+}
+
+export interface SavedNoteSummary {
+  key: string;
+  topic: string;
+  subject: string;
+  classLevel: string;
+  timestamp: number;
+  noteType: 'concise' | 'detailed';
 }
